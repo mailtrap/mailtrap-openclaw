@@ -1,0 +1,75 @@
+{
+  "name": "@mailtrap/openclaw",
+  "version": "0.1.0",
+  "description": "Mailtrap for OpenClaw: agent skills and the Mailtrap MCP server (send email, templates, contacts, Inbound and Sandbox).",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mailtrap/mailtrap-openclaw.git"
+  },
+  "homepage": "https://github.com/mailtrap/mailtrap-openclaw#readme",
+  "bugs": {
+    "url": "https://github.com/mailtrap/mailtrap-openclaw/issues"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "mailtrap",
+    "email",
+    "mcp",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "skills",
+    "openclaw.plugin.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "mcp-mailtrap": "0.12.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.11.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "clawhub": "0.25.1",
+    "openclaw": "2026.11.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.11.1",
+      "minGatewayVersion": "2026.11.1"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1",
+      "pluginSdkVersion": "2026.11.1"
+    },
+    "install": {
+      "npmSpec": "@mailtrap/openclaw",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.11.1"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "skills:sync": "node scripts/sync-skills.mjs",
+    "skills:check": "node scripts/sync-skills.mjs --check",
+    "pack:verify": "node scripts/verify-pack.mjs",
+    "prepack": "npm run build",
+    "gate": "bash scripts/gate.sh"
+  }
+}

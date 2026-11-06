@@ -1,0 +1,23 @@
+{
+  "id": "mailtrap",
+  "name": "Mailtrap",
+  "description": "Mailtrap skills and MCP server: send email, use templates, manage contacts, read Inbound and Sandbox inboxes.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "skills": [
+    "./skills"
+  ],
+  "mcpServers": {
+    "mailtrap": {
+      "transport": "stdio",
+      "command": "node",
+      "args": [
+        "./bin/mailtrap-mcp.mjs"
+      ]
+    }
+  }
+}
