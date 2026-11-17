@@ -1,12 +1,120 @@
 {
   "id": "mailtrap",
+  "channels": [
+    "mailtrap"
+  ],
   "name": "Mailtrap",
-  "description": "Mailtrap skills and MCP server: send email, use templates, manage contacts, read Inbound and Sandbox inboxes.",
-  "version": "0.1.0",
+  "description": "Mailtrap skills, MCP server and an email channel: send email, use templates, manage contacts, read Inbound and Sandbox inboxes, and let people email the agent.",
+  "version": "0.2.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "channelConfigs": {
+    "mailtrap": {
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "apiToken": {
+            "type": "string"
+          },
+          "inboxId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "allowFrom": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": "string"
+          },
+          "mediaMaxMb": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "outboundMaxMb": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "allowUnauthenticated": {
+            "type": "boolean"
+          },
+          "pollIntervalSec": {
+            "type": "number",
+            "minimum": 5
+          },
+          "accounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "apiToken": {
+                  "type": "string"
+                },
+                "inboxId": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "allowFrom": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "from": {
+                  "type": "string"
+                },
+                "mediaMaxMb": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "outboundMaxMb": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "allowUnauthenticated": {
+                  "type": "boolean"
+                },
+                "pollIntervalSec": {
+                  "type": "number",
+                  "minimum": 5
+                }
+              }
+            }
+          }
+        }
+      },
+      "uiHints": {
+        "apiToken": {
+          "label": "Mailtrap API token (Inbound)",
+          "sensitive": true
+        },
+        "inboxId": {
+          "label": "Inbound inbox ID"
+        },
+        "allowFrom": {
+          "label": "Allowed senders (addresses or @domain)"
+        },
+        "from": {
+          "label": "Reply from address (custom-domain inboxes only)"
+        },
+        "allowUnauthenticated": {
+          "label": "Skip DKIM check (testing only)"
+        }
+      }
+    }
   },
   "skills": [
     "./skills"

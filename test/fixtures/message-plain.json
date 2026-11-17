@@ -1,0 +1,30 @@
+{
+  "id": "1310341316475255341",
+  "inbox_id": 1001,
+  "from": "Alex Example <alex@example.test>",
+  "to": [
+    "agent-test@inbound-mailtrap.io"
+  ],
+  "cc": [],
+  "bcc": [],
+  "reply_to": null,
+  "subject": "Re: OpenClaw Inbound live check",
+  "headers": {
+    "mime-version": "1.0",
+    "return-path": ""
+  },
+  "size": 4976,
+  "html_size": 117,
+  "text_size": 69,
+  "received_at": "2026-11-09T14:12:03.661Z",
+  "rfc_message_id": "<synthetic-2762896744@mail.example.test>",
+  "in_reply_to": null,
+  "references": [],
+  "thread_id": "1928327648350305641",
+  "attachments": [],
+  "forwards": [],
+  "raw_message_url": "https://raw.example.test/redacted",
+  "raw_message_expires_at": "2026-11-09T15:12:37.632Z",
+  "html_body": "<html><body><div dir=\"auto\">Second message in the same thread, for the Phase 2 threading check.</div></body></html>\r\n",
+  "text_body": "Second message in the same thread, for the Phase 2 threading check.\r\n"
+}
