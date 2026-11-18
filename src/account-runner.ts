@@ -27,6 +27,8 @@ export interface RunningAccount {
 }
 
 const running = new Map<string, RunningAccount>();
+/** Per-account queue of handovers, so two replacements never both start after one `stop()`. */
+const handovers = new Map<string, Promise<void>>();
 
 export function getRunningAccount(accountId: string): RunningAccount | undefined {
   return running.get(accountId);
@@ -75,12 +77,22 @@ export async function runAccount(account: ResolvedAccount, signal: AbortSignal, 
     log
   });
   const runtime = new AccountRuntime({ api, inboxId, ledger, processor, pollIntervalMs: account.pollIntervalMs, log });
-  // Wait for the old runtime's drain (possibly mid agent turn) so the two never process the same item.
-  await running.get(account.accountId)?.runtime.stop();
   const entry: RunningAccount = { accountId: account.accountId, inboxId, ledger, runtime, processor };
-  running.set(account.accountId, entry);
-
-  void runtime.start(signal);
+  const previous = handovers.get(account.accountId) ?? Promise.resolve();
+  let release!: () => void;
+  const done = new Promise<void>((r) => (release = r));
+  const mine = previous.then(() => done);
+  handovers.set(account.accountId, mine);
+  await previous;
+  try {
+    // Wait for the old runtime's drain (possibly mid agent turn) so the two never process the same item.
+    await running.get(account.accountId)?.runtime.stop();
+    running.set(account.accountId, entry);
+    void runtime.start(signal);
+  } finally {
+    release();
+    if (handovers.get(account.accountId) === mine) handovers.delete(account.accountId);
+  }
   await new Promise<void>((resolve) => {
     if (signal.aborted) return resolve();
     signal.addEventListener("abort", () => resolve(), { once: true });

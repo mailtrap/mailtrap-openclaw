@@ -109,11 +109,11 @@ export function createDkimAuthenticator(deps: DkimDeps): Authenticator {
     const passes = result.results.filter((r) => r.status?.result === "pass" && !(r.status as { underSized?: unknown }).underSized && typeof r.signingDomain === "string");
     // Relaxed alignment: the signing domain and the From domain share an organizational domain.
     if (passes.some((r) => getAlignment(fromDomain, r.signingDomain as string, false))) return { ok: true };
+    // DNS lookups that failed temporarily (SERVFAIL, timeout) come back as `temperror`: that check did not run,
+    // and it may be the aligned one even when another signature passed or partly passed.
+    if (result.results.some((r) => r.status?.result === "temperror")) return { ok: false, reason: "dkim-dns-temperror", transient: true };
     // A signature covering only part of the body (l= tag) leaves the rest unauthenticated: not a pass.
     if (passes.length === 0 && result.results.some((r) => r.status?.result === "pass" && (r.status as { underSized?: unknown }).underSized)) return { ok: false, reason: "dkim-partial-body" };
-    // DNS lookups that failed temporarily (SERVFAIL, timeout) come back as `temperror`: that check did not run,
-    // and it may be the aligned one even when another (unaligned) signature passed.
-    if (result.results.some((r) => r.status?.result === "temperror")) return { ok: false, reason: "dkim-dns-temperror", transient: true };
     if (passes.length > 0) return { ok: false, reason: "dkim-misaligned" };
     const unsigned = result.results.every((r) => r.status?.result === "none");
     return { ok: false, reason: unsigned ? "dkim-missing" : "dkim-fail" };

@@ -60,6 +60,44 @@ describe("runAccount", () => {
     await Promise.all([first, second]);
   });
 
+  it("serializes two simultaneous restarts: each message gets one turn and one reply", async () => {
+    const api = new FakeInbound();
+    const openStore = memoryOpenStore();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let turns = 0;
+    const deps = {
+      createApi: () => api,
+      openStore,
+      runAgentTurn: async () => {
+        turns++;
+        await gate;
+        return { text: "answer" };
+      }
+    };
+    const controllers = [new AbortController(), new AbortController(), new AbortController()];
+    const runs = [runAccount(resolveAccount(cfg(), "default"), controllers[0]!.signal, deps, silentLogger)];
+    await new Promise((r) => setTimeout(r, 20));
+    api.add(makeMessage());
+    void getRunningAccount("default")!.runtime.tick(); // the turn starts and blocks on the gate
+    await new Promise((r) => setTimeout(r, 20));
+    expect(turns).toBe(1);
+
+    // two replacements arrive while the old turn is still running, and a new message with them
+    runs.push(runAccount(resolveAccount(cfg(), "default"), controllers[1]!.signal, deps, silentLogger));
+    runs.push(runAccount(resolveAccount(cfg(), "default"), controllers[2]!.signal, deps, silentLogger));
+    api.add(makeMessage());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(turns).toBe(1);
+
+    release();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(turns).toBe(2);
+    expect(api.replies).toHaveLength(2);
+    for (const c of controllers) c.abort();
+    await Promise.all(runs);
+  });
+
   it("refuses to start with a hosted inbox and a configured from", async () => {
     const api = new FakeInbound();
     await expect(

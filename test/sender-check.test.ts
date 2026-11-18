@@ -114,6 +114,24 @@ describe("DKIM (layer 2)", () => {
     expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-dns-temperror", transient: true });
   });
 
+  it("retries (transient) when one signature is a partial-body pass and another hit a DNS temperror", async () => {
+    const raw = rawMessage("Alex Example <alex@example.test>", "hello\r\nmore text\r\n");
+    const signed = await dkimSign(raw, {
+      signatureData: [
+        { signingDomain: "example.test", selector: "s1", privateKey: key.privateKey, algorithm: "rsa-sha256", maxBodyLength: "hello\r\n".length },
+        { signingDomain: "relay.test", selector: "s1", privateKey: attackerKey.privateKey, algorithm: "rsa-sha256" }
+      ]
+    } as never);
+    const exampleOnly = mockResolver({ "s1._domainkey.example.test": key.txt });
+    const resolver = async (name: string, rr: string) => {
+      if (name === "s1._domainkey.relay.test") throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
+      return exampleOnly(name, rr);
+    };
+    const { api, msg } = setup(undefined);
+    const auth = createDkimAuthenticator({ api, inboxId: 1001, fetchRaw: async () => Buffer.from(signed.signatures + raw), resolver, now: () => Date.UTC(2026, 10, 9, 12, 30) });
+    expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-dns-temperror", transient: true });
+  });
+
   it("treats a download timeout as transient", async () => {
     const { api, msg } = setup(undefined);
     const fetchRaw = async () => {
