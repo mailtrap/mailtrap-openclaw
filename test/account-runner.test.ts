@@ -23,6 +23,43 @@ describe("runAccount", () => {
     expect(getRunningAccount("default")).toBeUndefined();
   });
 
+  it("on restart, waits for the old runtime's turn to finish so the item is answered once", async () => {
+    const api = new FakeInbound();
+    const openStore = memoryOpenStore();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let turns = 0;
+    const deps = {
+      createApi: () => api,
+      openStore,
+      runAgentTurn: async () => {
+        turns++;
+        await gate;
+        return { text: "answer" };
+      }
+    };
+    const ac1 = new AbortController();
+    const first = runAccount(resolveAccount(cfg(), "default"), ac1.signal, deps, silentLogger);
+    await new Promise((r) => setTimeout(r, 20));
+    api.add(makeMessage());
+    void getRunningAccount("default")!.runtime.tick(); // polls; the turn starts and blocks on the gate
+    await new Promise((r) => setTimeout(r, 20));
+    expect(turns).toBe(1);
+
+    const ac2 = new AbortController();
+    const second = runAccount(resolveAccount(cfg(), "default"), ac2.signal, deps, silentLogger);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(turns).toBe(1); // the new runtime has not picked up the item still in processing
+
+    release();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(turns).toBe(1);
+    expect(api.replies).toHaveLength(1);
+    ac1.abort();
+    ac2.abort();
+    await Promise.all([first, second]);
+  });
+
   it("refuses to start with a hosted inbox and a configured from", async () => {
     const api = new FakeInbound();
     await expect(

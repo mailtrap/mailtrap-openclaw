@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { pollOnce } from "../src/poller.js";
-import { makeMessage } from "./helpers/memory.js";
+import { silentLogger } from "../src/types.js";
+import { makeMessage, memoryOpenStore } from "./helpers/memory.js";
 import { makeHarness } from "./helpers/harness.js";
 
 describe("polling and the ledger", () => {
@@ -46,6 +47,20 @@ describe("polling and the ledger", () => {
     expect(queued.map((i) => i.id)).toEqual(fresh.map((m) => m.id));
     expect((await h.ledger.getCursor())?.id).toBe(fresh[4]!.id);
     expect((await pollOnce(h.api, 1001, h.ledger)).enqueued).toBe(0);
+  });
+
+  it("warns when more new mail arrived than one poll scans (50 pages)", async () => {
+    const h = makeHarness();
+    h.api.pageSize = 1;
+    await pollOnce(h.api, 1001, h.ledger);
+    for (let i = 0; i < 51; i++) h.api.add(makeMessage());
+    const log = { ...silentLogger, warn: vi.fn() };
+    expect((await pollOnce(h.api, 1001, h.ledger, "poll", log)).enqueued).toBe(50);
+    expect(log.warn).toHaveBeenCalledWith(expect.stringContaining("older messages are skipped"), expect.objectContaining({ pages: 50 }));
+    log.warn.mockClear();
+    h.api.add(makeMessage());
+    await pollOnce(h.api, 1001, h.ledger, "poll", log);
+    expect(log.warn).not.toHaveBeenCalled();
   });
 
   it("does not enqueue an id twice and leaves a cursor behind a crash harmless", async () => {
@@ -180,8 +195,9 @@ describe("sessions", () => {
   });
 
   it("keeps accounts apart: the same references in another account's ledger join nothing", async () => {
-    const a = makeHarness();
-    const b = makeHarness();
+    const openStore = memoryOpenStore();
+    const a = makeHarness({ openStore });
+    const b = makeHarness({ openStore, accountId: "other" });
     await pollOnce(a.api, 1001, a.ledger);
     await pollOnce(b.api, 1001, b.ledger);
     const first = a.api.add(makeMessage());

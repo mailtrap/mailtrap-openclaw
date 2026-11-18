@@ -9,6 +9,8 @@ export type DnsResolver = (name: string, rr: string) => Promise<unknown>;
 export type RawFetcher = (url: string) => Promise<Buffer>;
 
 export const MAX_RAW_BYTES = 40 * 1024 * 1024;
+/** Deadline for the whole raw download, body included, so a stalled server can't block the drain. */
+export const RAW_DOWNLOAD_TIMEOUT_MS = 120_000;
 /** Re-get the message for a fresh URL when the old one expires within this window. */
 const EXPIRY_SLACK_MS = 60_000;
 
@@ -20,16 +22,21 @@ export interface DkimDeps {
   now?: () => number;
 }
 
-/** Downloads the raw message with a size cap. Only https URLs are accepted. */
+/** Downloads the raw message with a deadline and a streamed size cap. Only https URLs are accepted. */
 export const defaultFetchRaw: RawFetcher = async (url) => {
   if (!url.startsWith("https://")) throw new Error("raw message URL is not https");
-  const res = await fetch(url, { redirect: "error" });
+  const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(RAW_DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) throw Object.assign(new Error(`raw message download failed: ${res.status}`), { statusCode: res.status });
   const declared = Number(res.headers.get("content-length") ?? 0);
   if (declared > MAX_RAW_BYTES) throw new Error("raw message too large");
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length > MAX_RAW_BYTES) throw new Error("raw message too large");
-  return buf;
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+    total += chunk.length;
+    if (total > MAX_RAW_BYTES) throw new Error("raw message too large");
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
 };
 
 /**
@@ -100,19 +107,16 @@ export function createDkimAuthenticator(deps: DkimDeps): Authenticator {
 
     const fromDomain = domainOf(sender.email);
     const passes = result.results.filter((r) => r.status?.result === "pass" && !(r.status as { underSized?: unknown }).underSized && typeof r.signingDomain === "string");
-    if (passes.length === 0) {
-      // A signature covering only part of the body (l= tag) leaves the rest unauthenticated: not a pass.
-      if (result.results.some((r) => r.status?.result === "pass" && (r.status as { underSized?: unknown }).underSized)) return { ok: false, reason: "dkim-partial-body" };
-      // DNS lookups that failed temporarily (SERVFAIL, timeout) come back as `temperror`: the check did not run.
-      if (result.results.some((r) => r.status?.result === "temperror")) return { ok: false, reason: "dkim-dns-temperror", transient: true };
-      const unsigned = result.results.every((r) => r.status?.result === "none");
-      return { ok: false, reason: unsigned ? "dkim-missing" : "dkim-fail" };
-    }
     // Relaxed alignment: the signing domain and the From domain share an organizational domain.
-    if (!passes.some((r) => getAlignment(fromDomain, r.signingDomain as string, false))) {
-      return { ok: false, reason: "dkim-misaligned" };
-    }
-    return { ok: true };
+    if (passes.some((r) => getAlignment(fromDomain, r.signingDomain as string, false))) return { ok: true };
+    // A signature covering only part of the body (l= tag) leaves the rest unauthenticated: not a pass.
+    if (passes.length === 0 && result.results.some((r) => r.status?.result === "pass" && (r.status as { underSized?: unknown }).underSized)) return { ok: false, reason: "dkim-partial-body" };
+    // DNS lookups that failed temporarily (SERVFAIL, timeout) come back as `temperror`: that check did not run,
+    // and it may be the aligned one even when another (unaligned) signature passed.
+    if (result.results.some((r) => r.status?.result === "temperror")) return { ok: false, reason: "dkim-dns-temperror", transient: true };
+    if (passes.length > 0) return { ok: false, reason: "dkim-misaligned" };
+    const unsigned = result.results.every((r) => r.status?.result === "none");
+    return { ok: false, reason: unsigned ? "dkim-missing" : "dkim-fail" };
   };
 }
 

@@ -294,18 +294,19 @@ export class Processor {
       return "done";
     }
     if (item.threadId) {
-      try {
-        const thread = await this.d.api.getThread(this.d.inboxId, item.threadId);
-        // Only an outbound that answers this very message counts: two inbound messages
-        // in one thread each get their own reply, so a later outbound is not proof.
-        const sent = thread.messages.find((m) => m.direction === "outbound" && !!item.inboundRfcId && m.in_reply_to === item.inboundRfcId);
-        if (sent) {
-          this.d.log.info("mailtrap: reply found in the thread after a restart; not resending", { id });
-          await this.complete(id, [sent.id], sent.rfc_message_id ? [sent.rfc_message_id] : []);
-          return "done";
-        }
-      } catch (err) {
+      // Only a failed thread read means "can't tell, resend". A failure in `complete()`
+      // below propagates, so the next drain retries completion instead of sending again.
+      const thread = await this.d.api.getThread(this.d.inboxId, item.threadId).catch((err) => {
         this.d.log.warn("mailtrap: thread unreadable during recovery; resending", { id, error: String(err) });
+        return undefined;
+      });
+      // Only an outbound that answers this very message counts: two inbound messages
+      // in one thread each get their own reply, so a later outbound is not proof.
+      const sent = thread?.messages.find((m) => m.direction === "outbound" && !!item.inboundRfcId && m.in_reply_to === item.inboundRfcId);
+      if (sent) {
+        this.d.log.info("mailtrap: reply found in the thread after a restart; not resending", { id });
+        await this.complete(id, [sent.id], sent.rfc_message_id ? [sent.rfc_message_id] : []);
+        return "done";
       }
     }
     await this.deliver(id);

@@ -26,11 +26,13 @@ export interface InboundAttachmentDeps {
 }
 
 const mb = (n: number) => `${(n / (1024 * 1024)).toFixed(1)} MB`;
+/** Deadline for one attachment download, body included, so a stalled server can't block the drain. */
+export const DOWNLOAD_TIMEOUT_MS = 120_000;
 
-/** https-only download with a hard byte cap, streamed so an oversize body is never buffered whole. */
+/** https-only download with a deadline and a hard byte cap, streamed so an oversize body is never buffered whole. */
 export async function defaultDownload(url: string, maxBytes: number): Promise<Buffer> {
   if (!url.startsWith("https://")) throw new Error("attachment URL is not https");
-  const res = await fetch(url, { redirect: "error" });
+  const res = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   if (!res.ok) throw Object.assign(new Error(`download failed: ${res.status}`), { statusCode: res.status });
   if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw Object.assign(new Error("too large"), { tooLarge: true });
   const chunks: Buffer[] = [];

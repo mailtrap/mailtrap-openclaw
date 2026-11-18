@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Ledger } from "../src/ledger.js";
 import { pollOnce } from "../src/poller.js";
 import type { InboundThread } from "../src/types.js";
@@ -42,6 +42,18 @@ describe("crash safety", () => {
     await h.runtime.drain();
     expect(h.api.replies).toHaveLength(0);
     expect(await h.ledger.get(m.id)).toMatchObject({ state: "done", sentMessageIds: ["00000000-0000-4000-8000-0000000000aa"] });
+  });
+
+  it("does not resend when closing the item fails after the reply was found in the thread", async () => {
+    const h = makeHarness();
+    const m = await crashedMidReply(h);
+    outboundIn(h.api, m);
+    vi.spyOn(h.processor, "complete").mockRejectedValueOnce(new Error("store write failed"));
+    await expect(h.processor.reconcile(m.id)).rejects.toThrow("store write failed");
+    expect(h.api.replies).toHaveLength(0);
+    expect((await h.ledger.get(m.id))?.state).toBe("sending");
+    expect(await h.processor.reconcile(m.id)).toBe("done");
+    expect(h.api.replies).toHaveLength(0);
   });
 
   it("records the outbound Message-ID it found so a follow-up still joins the session", async () => {

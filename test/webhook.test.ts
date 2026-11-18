@@ -9,7 +9,7 @@ import { silentLogger, type WebhookAdmin, type WebhookInfo } from "../src/types.
 import { accountIdFromPath, handleWebhook, webhookUrlFor } from "../src/webhook.js";
 import { createWebhookRouteHandler } from "../src/webhook-route.js";
 import { connectWebhook, disconnectWebhook } from "../src/webhook-cli.js";
-import { FakeInbound, memoryOpenStore } from "./helpers/memory.js";
+import { FakeInbound, makeMessage, memoryOpenStore } from "./helpers/memory.js";
 
 const SECRET = "test-signing-secret";
 const sign = (body: string, secret = SECRET) => createHmac("sha256", secret).update(body).digest("hex");
@@ -121,6 +121,7 @@ describe("webhook route", () => {
 
   it("answers 200, persists the id and starts the drain after responding; a following drain replies", async () => {
     const r = await running();
+    r.api.add(makeMessage({ id: "will-be-fetched", text_body: "hi" }));
     const raw = body(event("will-be-fetched"));
     const detached: Array<() => Promise<unknown>> = [];
     const handler = createWebhookRouteHandler({ readBody: async () => raw, runDetached: async (w) => void detached.push(w) });
@@ -130,6 +131,10 @@ describe("webhook route", () => {
     expect(await r.ledger.get("will-be-fetched")).toMatchObject({ state: "queued", source: "webhook" });
     expect(r.api.calls.filter((c) => c.startsWith("get:"))).toHaveLength(0); // nothing fetched inside the request
     expect(detached).toHaveLength(1);
+    await detached[0]!();
+    expect(r.api.replies.map((x) => x.messageId)).toEqual(["will-be-fetched"]);
+    expect(r.api.replies[0]!.params.text).toBe("re hi");
+    expect(await r.ledger.get("will-be-fetched")).toMatchObject({ state: "done" });
     await r.stop();
   });
 

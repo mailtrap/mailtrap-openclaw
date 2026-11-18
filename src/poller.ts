@@ -42,6 +42,7 @@ export async function pollOnce(
   const cursorTime = Date.parse(cursor.receivedAt);
   const fresh: Array<{ id: string; receivedAt: string }> = []; // newest first
   let lastId: string | undefined;
+  let scannedAll = false;
   for (let page = 0; page < MAX_PAGES; page++) {
     const res = await api.listMessages(inboxId, lastId);
     let reachedCursor = false;
@@ -52,8 +53,15 @@ export async function pollOnce(
       }
       fresh.push({ id: m.id, receivedAt: m.received_at });
     }
-    if (reachedCursor || res.data.length === 0 || !res.last_id) break;
+    if (reachedCursor || res.data.length === 0 || !res.last_id) {
+      scannedAll = true;
+      break;
+    }
     lastId = res.last_id;
+  }
+  if (!scannedAll) {
+    // The cursor still moves to the newest message below, so mail older than these pages is never answered.
+    log?.warn("mailtrap: more new mail than one poll scans; older messages are skipped", { pages: MAX_PAGES, scanned: fresh.length });
   }
 
   let enqueued = 0;

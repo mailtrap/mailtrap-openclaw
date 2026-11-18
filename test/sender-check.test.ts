@@ -1,6 +1,7 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { isAllowed, parseAddress } from "../src/address.js";
-import { createDkimAuthenticator, unauthenticated } from "../src/dkim.js";
+import { dkimSign } from "mailauth";
+import { createDkimAuthenticator, defaultFetchRaw, MAX_RAW_BYTES, unauthenticated } from "../src/dkim.js";
 import { pollOnce } from "../src/poller.js";
 import { checkSender } from "../src/sender-check.js";
 import { makeKey, mockResolver, rawMessage, sign, type TestKey } from "./helpers/dkim.js";
@@ -95,6 +96,33 @@ describe("DKIM (layer 2)", () => {
     expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-from-mismatch" });
   });
 
+  it("retries (transient) when the aligned signature's DNS lookup fails, even if an unaligned one passes", async () => {
+    const raw = rawMessage("Alex Example <alex@example.test>");
+    const signed = await dkimSign(raw, {
+      signatureData: [
+        { signingDomain: "example.test", selector: "s1", privateKey: key.privateKey, algorithm: "rsa-sha256" },
+        { signingDomain: "relay.test", selector: "s1", privateKey: attackerKey.privateKey, algorithm: "rsa-sha256" }
+      ]
+    });
+    const relayOnly = mockResolver({ "s1._domainkey.relay.test": attackerKey.txt });
+    const resolver = async (name: string, rr: string) => {
+      if (name === "s1._domainkey.example.test") throw Object.assign(new Error("SERVFAIL"), { code: "ESERVFAIL" });
+      return relayOnly(name, rr);
+    };
+    const { api, msg } = setup(undefined);
+    const auth = createDkimAuthenticator({ api, inboxId: 1001, fetchRaw: async () => Buffer.from(signed.signatures + raw), resolver, now: () => Date.UTC(2026, 10, 9, 12, 30) });
+    expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-dns-temperror", transient: true });
+  });
+
+  it("treats a download timeout as transient", async () => {
+    const { api, msg } = setup(undefined);
+    const fetchRaw = async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    };
+    const auth = createDkimAuthenticator({ api, inboxId: 1001, fetchRaw, resolver: dns(), now: () => Date.UTC(2026, 10, 9, 12, 30) });
+    expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-raw-unavailable", transient: true });
+  });
+
   it("rejects when the raw message can't be downloaded", async () => {
     const { auth, msg } = setup(undefined);
     expect(await auth(msg, alex)).toEqual({ ok: false, reason: "dkim-raw-unavailable", transient: true });
@@ -174,5 +202,25 @@ describe("sender check inside the pipeline", () => {
     expect((await h.ledger.get(good.id))?.state).toBe("done");
     expect(api.replies.map((r) => r.messageId)).toEqual([good.id]);
     expect(h.turns.map((t) => t.messageId)).toEqual([good.id]);
+  });
+});
+
+describe("raw message download", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("sets a deadline and stops reading a body without Content-Length once it passes the cap", async () => {
+    const chunk = new Uint8Array(1024 * 1024);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        sent++;
+        c.enqueue(chunk);
+      }
+    });
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response(body));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(defaultFetchRaw("https://raw.example.test/big")).rejects.toThrow("raw message too large");
+    expect(fetchMock.mock.calls[0]![1]?.signal).toBeInstanceOf(AbortSignal);
+    expect(sent).toBeLessThan(MAX_RAW_BYTES / chunk.length + 5);
   });
 });

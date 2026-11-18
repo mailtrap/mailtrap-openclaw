@@ -77,6 +77,7 @@ describe("resolveAccount", () => {
     expect(a.mediaMaxBytes).toBe(20 * 1024 * 1024);
     expect(a.pollIntervalMs).toBe(5000);
     expect(resolveAccount(cfg({ apiToken: "t", inboxId: 1 }), "default").pollIntervalMs).toBe(30_000);
+    expect(resolveAccount(cfg({ apiToken: "t", inboxId: 1, pollIntervalSec: 10_000_000 }), "default").pollIntervalMs).toBe(86_400_000);
   });
 
   it("is disabled by either the section or the account", () => {

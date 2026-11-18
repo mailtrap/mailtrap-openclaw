@@ -75,7 +75,8 @@ export async function runAccount(account: ResolvedAccount, signal: AbortSignal, 
     log
   });
   const runtime = new AccountRuntime({ api, inboxId, ledger, processor, pollIntervalMs: account.pollIntervalMs, log });
-  running.get(account.accountId)?.runtime.stop();
+  // Wait for the old runtime's drain (possibly mid agent turn) so the two never process the same item.
+  await running.get(account.accountId)?.runtime.stop();
   const entry: RunningAccount = { accountId: account.accountId, inboxId, ledger, runtime, processor };
   running.set(account.accountId, entry);
 

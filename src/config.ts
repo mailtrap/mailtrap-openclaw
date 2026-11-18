@@ -8,6 +8,8 @@ export const DEFAULT_MEDIA_MAX_MB = 20;
 export const DEFAULT_OUTBOUND_MAX_MB = 10;
 export const DEFAULT_POLL_INTERVAL_SEC = 30;
 export const MIN_POLL_INTERVAL_SEC = 5;
+/** One day. Node's setTimeout fires at once for delays over about 24.8 days. */
+export const MAX_POLL_INTERVAL_SEC = 86_400;
 
 export interface MailtrapAccountConfig {
   enabled?: boolean;
@@ -91,7 +93,7 @@ export function resolveAccount(cfg: unknown, accountId?: string | null): Resolve
 
   const mediaMb = positive(pick("mediaMaxMb"), DEFAULT_MEDIA_MAX_MB);
   const outMb = positive(pick("outboundMaxMb"), DEFAULT_OUTBOUND_MAX_MB);
-  const pollSec = Math.max(MIN_POLL_INTERVAL_SEC, positive(pick("pollIntervalSec"), DEFAULT_POLL_INTERVAL_SEC));
+  const pollSec = Math.min(MAX_POLL_INTERVAL_SEC, Math.max(MIN_POLL_INTERVAL_SEC, positive(pick("pollIntervalSec"), DEFAULT_POLL_INTERVAL_SEC)));
   return {
     accountId: id,
     enabled: own.enabled !== false && section.enabled !== false,
@@ -178,7 +180,7 @@ const accountProperties = {
   mediaMaxMb: { type: "number", exclusiveMinimum: 0 },
   outboundMaxMb: { type: "number", exclusiveMinimum: 0 },
   allowUnauthenticated: { type: "boolean" },
-  pollIntervalSec: { type: "number", minimum: MIN_POLL_INTERVAL_SEC }
+  pollIntervalSec: { type: "number", minimum: MIN_POLL_INTERVAL_SEC, maximum: MAX_POLL_INTERVAL_SEC }
 } as const;
 
 /** JSON schema for `channels.mailtrap`. The manifest's channelConfigs copy is checked against this in tests. */

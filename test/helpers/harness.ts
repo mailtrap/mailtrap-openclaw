@@ -11,6 +11,7 @@ export interface HarnessOptions {
   authenticate?: Authenticator;
   runAgentTurn?: RunAgentTurn;
   openStore?: ReturnType<typeof memoryOpenStore>;
+  accountId?: string;
   api?: FakeInbound;
   /** Use a custom-domain inbox and send replies from this address. */
   customFrom?: string;
@@ -22,7 +23,8 @@ export interface HarnessOptions {
 export function makeHarness(opts: HarnessOptions = {}) {
   const api = opts.api ?? new FakeInbound();
   const openStore = opts.openStore ?? memoryOpenStore();
-  const ledger = new Ledger(openStore, "default");
+  const accountId = opts.accountId ?? "default";
+  const ledger = new Ledger(openStore, accountId);
   const turns: AgentTurnInput[] = [];
   const runAgentTurn: RunAgentTurn =
     opts.runAgentTurn ??
@@ -33,7 +35,7 @@ export function makeHarness(opts: HarnessOptions = {}) {
   if (opts.customFrom) api.inbox = { id: 1001, name: "t", address: "*@mail.example.test" };
   const identity = resolveReplyIdentity(api.inbox, opts.customFrom);
   const processor = new Processor({
-    accountId: "default",
+    accountId,
     inboxId: 1001,
     api,
     ledger,

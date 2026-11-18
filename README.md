@@ -134,7 +134,7 @@ The channel id is `mailtrap`. Someone emails your Inbound address, the agent ans
 | `from` | Reply From address. **Required** on a custom-domain inbox, on that domain. **Must be omitted** on a hosted inbox (Mailtrap rejects it). The inbox type is detected at start from the inbox address. |
 | `mediaMaxMb` | Largest inbound attachment downloaded. Default 20. Bigger files are skipped and the agent is told. |
 | `outboundMaxMb` | Largest attachment sent back, per file. Default 10. |
-| `pollIntervalSec` | Poll interval without a webhook. Default 30, minimum 5. |
+| `pollIntervalSec` | Poll interval without a webhook. Default 30, minimum 5, maximum 86400 (one day). |
 | `allowUnauthenticated` | **Testing only.** Turns the DKIM check off. The allowlist still applies. |
 | `accounts.<id>` | More inboxes. Each account has its own token, inbox, allowlist, `from`, webhook, cursor and state. Only `mediaMaxMb`, `outboundMaxMb` and `pollIntervalSec` fall back to the top level. An empty id means `default`. |
 
