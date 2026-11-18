@@ -1,0 +1,78 @@
+{
+  "id": "1083863794026542351",
+  "subject": "OpenClaw Inbound live check",
+  "message_count": 2,
+  "size": 5682,
+  "first_message_at": "2026-11-09T13:37:14.414Z",
+  "last_received_at": "2026-11-09T13:37:14.414Z",
+  "last_sent_at": "2026-11-09T13:46:17.489Z",
+  "last_activity_at": "2026-11-09T13:46:17.489Z",
+  "last_message_id": "1161559407816184959",
+  "senders": [
+    "Alex Example <alex@example.test>",
+    "agent-test@inbound-mailtrap.io"
+  ],
+  "recipients": [
+    "agent-test@inbound-mailtrap.io",
+    "Alex Example <alex@example.test>"
+  ],
+  "attachments": [],
+  "messages": [
+    {
+      "visibility_status": "available",
+      "direction": "inbound",
+      "id": "1104332181960013389",
+      "message_group_id": null,
+      "subject": "OpenClaw Inbound live check",
+      "rfc_message_id": "<synthetic-48962041@mail.example.test>",
+      "in_reply_to": null,
+      "references": [],
+      "from": "Alex Example <alex@example.test>",
+      "to": [
+        "agent-test@inbound-mailtrap.io"
+      ],
+      "cc": [],
+      "bcc": [],
+      "reply_to": "",
+      "created_at": "2026-11-09T13:37:14.414Z",
+      "email_size": 5070,
+      "text_body": "Test message for the Mailtrap OpenClaw plugin live check. The agent should\r\nread this message from the Inbound inbox.\r\n",
+      "html_body": "<html><body><div dir=\"auto\">Test message for the Mailtrap OpenClaw plugin live check. The agent should read this message from the Inbound inbox.</div></body></html>\r\n",
+      "attachments": [],
+      "forwards": []
+    },
+    {
+      "visibility_status": "available",
+      "direction": "outbound",
+      "id": "b88139b9-ae27-4da7-82f0-6b90f143262f",
+      "message_group_id": null,
+      "subject": "Re: OpenClaw Inbound live check",
+      "rfc_message_id": "<b88139b9-ae27-4da7-82f0-6b90f143262f@inbound-mailtrap.io>",
+      "in_reply_to": "<synthetic-48962041@mail.example.test>",
+      "references": [
+        "<synthetic-48962041@mail.example.test>"
+      ],
+      "from": "agent-test@inbound-mailtrap.io",
+      "to": [
+        "Alex Example <alex@example.test>"
+      ],
+      "cc": [],
+      "bcc": [],
+      "reply_to": "",
+      "created_at": "2026-11-09T13:46:17.489Z",
+      "email_size": 612,
+      "text_body": "Reply sent by the OpenClaw Mailtrap plugin live check.",
+      "html_body": null,
+      "attachments": [],
+      "delivery_status": "delivered",
+      "delivered_at": "2026-11-09T13:46:18.089Z",
+      "bounced_at": null,
+      "delivery": {
+        "to": "alex@example.test",
+        "status": "delivered",
+        "delivered_at": "2026-11-09T13:46:18.089Z",
+        "bounced_at": null
+      }
+    }
+  ]
+}
