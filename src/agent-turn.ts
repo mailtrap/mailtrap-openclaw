@@ -1,4 +1,4 @@
-import { TurnNotRunError, type RunAgentTurn } from "./processor.js";
+import { TURN_ADMISSION_WAIT_MS, TURN_OUTCOME_WAIT_MS, TurnAbortedError, TurnNotRunError, TurnOutcomeUnknownError, type RunAgentTurn } from "./processor.js";
 
 export const CHANNEL = "mailtrap";
 
@@ -37,6 +37,27 @@ export interface AgentTurnOptions {
   accountId: string;
   host: TurnHost;
   onError: (msg: string, err: unknown) => void;
+}
+
+/** Resolves true when `event` happens within `ms`, false at the deadline; rejects with `TurnAbortedError` on abort. */
+function within(event: Promise<void>, ms: number, signal: AbortSignal | undefined): Promise<boolean> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new TurnAbortedError());
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new TurnAbortedError());
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(false);
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void event.then(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+      resolve(true);
+    });
+  });
 }
 
 /**
@@ -82,18 +103,28 @@ export function createAgentTurnRunner(opts: AgentTurnOptions): RunAgentTurn {
     const texts: string[] = [];
     const media: Array<{ path: string; filename: string }> = [];
     let dispatchError: unknown;
-    // Empty output is real silence only when core reported a run that reached its terminal
-    // outcome before the dispatch returned. A run that started (or a queued follow-up that was
-    // admitted) without a terminal outcome is still going and will deliver later; a dispatch
-    // with no run at all (session busy) has produced nothing yet.
-    let runStarted = false;
+    // Empty output is real silence only when core reported an inline run that reached its terminal
+    // outcome before the dispatch returned. Otherwise the session was busy: core may have queued this
+    // turn as a follow-up, which it admits once the session frees up and which delivers to this
+    // collector after the dispatch returned. For a follow-up the terminal outcome comes before its
+    // final payloads, so only the settle marks the end. Core also settles a follow-up it will retry,
+    // so after an admission empty output is silence only when the queued run completed.
     let runFinished = false;
-    const markStarted = () => {
-      runStarted = true;
-    };
-    const markFinished = () => {
-      runStarted = true;
+    let outcomeAfterAdmission: "completed" | "failed" | undefined;
+    let admitted = false;
+    let onAdmitted = () => {};
+    let onSettled = () => {};
+    const admission = new Promise<void>((r) => (onAdmitted = r));
+    const settlement = new Promise<void>((r) => (onSettled = r));
+    // A start without a terminal outcome decides nothing: it is handled like a busy return.
+    const markStarted = () => {};
+    const markFinished = (outcome: "completed" | "failed") => {
       runFinished = true;
+      if (admitted) outcomeAfterAdmission = outcome;
+    };
+    const markAdmitted = () => {
+      admitted = true;
+      onAdmitted();
     };
 
     const sender = input.sender.email;
@@ -155,15 +186,29 @@ export function createAgentTurnRunner(opts: AgentTurnOptions): RunAgentTurn {
         }
       },
       replyPipeline,
-      replyOptions: { onModelSelected, onAgentRunStart: markStarted, onPreparedAgentRunStart: markStarted, onAgentRunTerminalOutcome: markFinished }
+      replyOptions: {
+        onModelSelected,
+        onAgentRunStart: markStarted,
+        onPreparedAgentRunStart: markStarted,
+        onAgentRunTerminalOutcome: markFinished,
+        onQueuedFollowupAdmitted: markAdmitted,
+        onQueuedFollowupSettled: () => onSettled()
+      }
     });
     if (dispatchError) throw dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError));
-    if (texts.length === 0 && media.length === 0) {
+    const collected = () => (texts.length === 0 && media.length === 0 ? null : { text: texts.join("\n\n"), media });
+    if (!admitted) {
+      if (runFinished || texts.length > 0 || media.length > 0) return collected();
       // Core's busy-session result (`reply-operation-active`, dispatch-from-config:2896-2909) has the
-      // same shape as a silent model turn. Only a run that finished before return makes empty mean "no reply".
-      if (!runStarted || !runFinished) throw new TurnNotRunError();
-      return null;
+      // same shape as a silent model turn. A follow-up not admitted in time counts as not run and is retried.
+      // The wait holds the account's serial queue. In core's default queue mode `steer` the email is injected
+      // into the active run with no hook for us, so this wait ends in the usual retry.
+      if (!(await within(admission, TURN_ADMISSION_WAIT_MS, input.signal))) throw new TurnNotRunError();
     }
-    return { text: texts.join("\n\n"), media };
+    // Admitted: the turn is running; never dispatch it again.
+    if (!(await within(settlement, TURN_OUTCOME_WAIT_MS, input.signal))) throw new TurnOutcomeUnknownError("turn-outcome-timeout");
+    const reply = collected();
+    if (!reply && outcomeAfterAdmission !== "completed") throw new TurnOutcomeUnknownError("turn-outcome-unknown");
+    return reply;
   };
 }

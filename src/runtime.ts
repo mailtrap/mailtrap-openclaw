@@ -25,6 +25,8 @@ export class AccountRuntime {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private current: Promise<void> = Promise.resolve();
   private lastPollAt: number | undefined;
+  /** Ends a turn's wait for a queued follow-up, so `stop()` does not hang on it. */
+  private abort = new AbortController();
 
   constructor(private d: RuntimeDeps) {}
 
@@ -36,6 +38,7 @@ export class AccountRuntime {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    this.abort.abort();
     if (this.timer) clearTimeout(this.timer);
     await this.current;
   }
@@ -104,7 +107,7 @@ export class AccountRuntime {
           for (const item of pending) {
             if (this.stopped) return;
             try {
-              await this.d.processor.process(item.id);
+              await this.d.processor.process(item.id, this.abort.signal);
             } catch (err) {
               this.d.log.error("mailtrap: item failed", { id: item.id, error: String(err) });
             }

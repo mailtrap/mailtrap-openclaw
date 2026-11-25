@@ -20,6 +20,13 @@ export const TURN_BACKOFF_MS = 60_000;
  */
 export const NOT_RUN_BACKOFF_MAX_MS = 5 * 60_000;
 export const NOT_RUN_WINDOW_MS = 45 * 60_000;
+/**
+ * A dispatch into a busy session may have queued the turn as a follow-up that core admits once the session frees up.
+ * The turn waits this long for that admission before it counts as not run.
+ */
+export const TURN_ADMISSION_WAIT_MS = 5 * 60_000;
+/** Once a queued follow-up is admitted, the turn waits this long for it to settle; it is never dispatched again. */
+export const TURN_OUTCOME_WAIT_MS = 10 * 60_000;
 /** OpenClaw's keyed store rejects values over 1 MiB; the ledger item (with the pending reply) must stay clear of that, with margin. */
 export const MAX_ITEM_BYTES = 1024 * 1024 - 64 * 1024;
 /** Body of a reply that carries only attachments; the reply API needs text and/or html. */
@@ -45,6 +52,8 @@ export interface AgentTurnInput {
   inboxAddress: string;
   /** Inbound attachments already stored in OpenClaw media. */
   media: InboundMedia[];
+  /** Aborts a wait for a queued turn when the account stops. */
+  signal?: AbortSignal;
 }
 
 /** What the agent said; null when it chose to stay silent. */
@@ -97,6 +106,26 @@ export class TurnNotRunError extends Error {
   }
 }
 
+/**
+ * A queued follow-up for this item was admitted, but how it ended is unknown: it did not settle within
+ * `TURN_OUTCOME_WAIT_MS` (`turn-outcome-timeout`), or it settled with nothing delivered and no completed
+ * run (`turn-outcome-unknown`; core may be running it again). It is not dispatched again; the item fails.
+ */
+export class TurnOutcomeUnknownError extends Error {
+  constructor(readonly reason: "turn-outcome-timeout" | "turn-outcome-unknown") {
+    super(reason === "turn-outcome-timeout" ? "queued agent turn did not finish in time" : "queued agent turn settled without completing");
+    this.name = "TurnOutcomeUnknownError";
+  }
+}
+
+/** The account stopped while the turn waited for a queued follow-up; the item is left as it is. */
+export class TurnAbortedError extends Error {
+  constructor() {
+    super("account stopped while waiting for the agent turn");
+    this.name = "TurnAbortedError";
+  }
+}
+
 /** Message id for the nth agent dispatch of one inbound message (n counts the dispatches already started). */
 export function dispatchIdFor(messageId: string, startedBefore: number): string {
   return startedBefore === 0 ? messageId : `${messageId}:retry-${startedBefore}`;
@@ -115,7 +144,7 @@ export function sentRfcIds(identity: ReplyIdentity, messageIds: readonly string[
 export class Processor {
   constructor(private d: ProcessorDeps) {}
 
-  async process(id: string): Promise<void> {
+  async process(id: string, signal?: AbortSignal): Promise<void> {
     const item = await this.d.ledger.get(id);
     if (!item || (item.state !== "queued" && item.state !== "processing")) return;
     if (item.retryAt !== undefined && item.retryAt > (this.d.now ?? Date.now)()) return;
@@ -197,9 +226,17 @@ export class Processor {
         body: [bodyText(msg), ...notes.map((n) => `[${n}]`)].filter(Boolean).join("\n\n"),
         media,
         receivedAt: msg.received_at,
-        inboxAddress: this.d.identity.inboxAddress
+        inboxAddress: this.d.identity.inboxAddress,
+        signal
       });
     } catch (err) {
+      // Stopped mid-wait: left `processing` as after a crash; the next start dispatches it again.
+      if (err instanceof TurnAbortedError) return;
+      if (err instanceof TurnOutcomeUnknownError) {
+        this.d.log.warn("mailtrap: queued agent turn ended without a known outcome; not running it again", { id, reason: err.reason });
+        await this.d.ledger.update(id, { state: "failed", reason: err.reason });
+        return;
+      }
       const now = (this.d.now ?? Date.now)();
       if (err instanceof TurnNotRunError) {
         const notRunAttempts = (item.notRunAttempts ?? 0) + 1;

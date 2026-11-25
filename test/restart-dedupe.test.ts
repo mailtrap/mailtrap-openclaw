@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pollOnce } from "../src/poller.js";
-import { dispatchIdFor, type AgentTurnInput, type RunAgentTurn } from "../src/processor.js";
+import { dispatchIdFor, TURN_ADMISSION_WAIT_MS, type AgentTurnInput, type RunAgentTurn } from "../src/processor.js";
 import { makeHarness } from "./helpers/harness.js";
 import { makeMessage } from "./helpers/memory.js";
 import { createAgentTurnRunner } from "../src/agent-turn.js";
@@ -24,6 +24,8 @@ function core() {
 }
 
 describe("exactly one reply after a crash mid-turn", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("the first dispatch keeps the plain message id and counts itself before it runs", async () => {
     const c = core();
     const h = makeHarness({
@@ -112,11 +114,15 @@ describe("exactly one reply after a crash mid-turn", () => {
     const m = h.api.add(makeMessage());
     await h.ledger.enqueue(m.id, "poll");
     await h.ledger.update(m.id, { state: "processing", conversationKey: m.id, dispatchAttempts: 1 });
-    await h.runtime.drain();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const drained = h.runtime.drain();
+    // no follow-up was admitted while the plugin waited for one
+    await vi.advanceTimersByTimeAsync(TURN_ADMISSION_WAIT_MS);
+    await drained;
     // the plugin's dispatch came back empty while the session was busy: nothing dropped, nothing sent
     expect(await h.ledger.get(m.id)).toMatchObject({ state: "processing", notRunAttempts: 1 });
     expect(h.api.replies).toHaveLength(0);
-    // the queued turn delivers after the plugin stopped collecting: goes nowhere
+    // the queued turn is admitted and delivers after the plugin stopped waiting: goes nowhere
     recovering = false;
     for (const late of queuedDeliveries) await late();
     expect(h.api.replies).toHaveLength(0);
@@ -147,8 +153,15 @@ describe("exactly one reply after a crash mid-turn", () => {
     const m = h.api.add(makeMessage());
     await h.ledger.enqueue(m.id, "poll");
     await h.ledger.update(m.id, { state: "processing", conversationKey: m.id, dispatchAttempts: 1 });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    // each busy dispatch waits out the admission window before it counts as not run
+    const process = async (hh: typeof h, id: string) => {
+      const p = hh.processor.process(id);
+      await vi.advanceTimersByTimeAsync(TURN_ADMISSION_WAIT_MS);
+      await p;
+    };
     for (let i = 0; i < 12 && h.api.replies.length === 0; i++) {
-      await h.processor.process(m.id);
+      await process(h, m.id);
       const item = await h.ledger.get(m.id);
       expect(item?.state).not.toBe("failed");
       if (item?.retryAt) now.t = Math.max(now.t, item.retryAt);
@@ -163,7 +176,7 @@ describe("exactly one reply after a crash mid-turn", () => {
     await h2.ledger.enqueue(m2.id, "poll");
     await h2.ledger.update(m2.id, { state: "processing", conversationKey: m2.id, dispatchAttempts: 1 });
     for (let i = 0; i < 40; i++) {
-      await h2.processor.process(m2.id);
+      await process(h2, m2.id);
       const item = await h2.ledger.get(m2.id);
       if (item?.state === "failed") break;
       now.t = Math.max(now.t, item?.retryAt ?? now.t);
@@ -172,21 +185,19 @@ describe("exactly one reply after a crash mid-turn", () => {
     expect(h2.api.replies).toHaveLength(0);
   });
 
-  it("queued follow-up admitted before the dispatch returns, delivery after: retried, exactly one reply, no no-reply drop", async () => {
-    let recovering = true;
+  it("queued follow-up admitted before the dispatch returns, delivery after: waits for it, exactly one reply, no second dispatch", async () => {
     const dispatches: string[] = [];
     const late: Array<() => Promise<void>> = [];
     const host = makeTurnHost(async (p) => {
       const plan = p as any;
       dispatches.push(plan.ctxPayload.MessageSid);
-      if (recovering) {
-        // admission is reported during the dispatch, the queued turn's output arrives after it returned
-        plan.replyOptions.onQueuedFollowupAdmitted?.("run-q");
-        late.push(() => plan.delivery.deliver({ text: "queued answer, delivered late" }));
-        return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
-      }
-      plan.replyOptions.onAgentRunStart("run-2");
-      await plan.delivery.deliver({ text: "answer after recovery" });
+      // admission is reported during the dispatch, the queued turn's output arrives after it returned
+      plan.replyOptions.onQueuedFollowupAdmitted();
+      late.push(async () => {
+        await plan.delivery.deliver({ text: "queued answer, delivered late" });
+        await plan.replyOptions.onQueuedFollowupSettled();
+      });
+      return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
     });
     const now = { t: 1_000_000 };
     const h = makeHarness({ now: () => now.t, runAgentTurn: createAgentTurnRunner({ cfg: {}, accountId: "default", host, onError: () => {} }) });
@@ -194,15 +205,16 @@ describe("exactly one reply after a crash mid-turn", () => {
     const m = h.api.add(makeMessage());
     await h.ledger.enqueue(m.id, "poll");
     await h.ledger.update(m.id, { state: "processing", conversationKey: m.id, dispatchAttempts: 1 });
-    await h.runtime.drain();
-    expect(await h.ledger.get(m.id)).toMatchObject({ state: "processing", notRunAttempts: 1 });
-    recovering = false;
-    for (const f of late) await f();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const drained = h.runtime.drain();
+    // past the admission window: an admitted turn is never given up as "not run"
+    await vi.advanceTimersByTimeAsync(TURN_ADMISSION_WAIT_MS + 1);
     expect(h.api.replies).toHaveLength(0);
-    now.t += 10 * 60_000;
-    await h.processor.process(m.id);
+    for (const f of late) await f();
+    await drained;
+    expect(dispatches).toEqual([dispatchIdFor(m.id, 1)]);
     expect(h.api.replies).toHaveLength(1);
-    expect(h.api.replies[0]!.params.text).toBe("answer after recovery");
+    expect(h.api.replies[0]!.params.text).toBe("queued answer, delivered late");
     expect(await h.ledger.get(m.id)).toMatchObject({ state: "done" });
   });
 });
