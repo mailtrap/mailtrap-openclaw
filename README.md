@@ -147,6 +147,8 @@ A message must pass both layers, or it is dropped and logged with a reason (no r
 1. **Allowlist.** Default deny.
 2. **DKIM, verified by the plugin.** Mailtrap Inbound does not expose `Authentication-Results`, so the plugin downloads the raw message (the link expires after about an hour; it asks for a fresh one when needed) and verifies the DKIM signature itself with `mailauth`. It requires a passing signature whose domain is aligned (relaxed: same organizational domain) with the From domain, and a From that matches what the API reported. A forged `From` has no valid signature and is dropped.
 
+Automatic replies and bulk or list mail (`Auto-Submitted` other than `no`, `Precedence: bulk|junk|list`, `X-Autoreply`, `X-Autorespond`) are ignored.
+
 Limits: DKIM proves the message was signed by the sender's domain, not that it is fresh; a signature that covers only part of the body (`l=` tag) is rejected, but a previously signed message that is replayed to your inbox still verifies. Senders on domains that do not sign with DKIM cannot be used.
 
 ### Reply-only and token scope

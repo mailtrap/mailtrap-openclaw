@@ -2,7 +2,7 @@ import { parseAddress } from "./address.js";
 import { fetchAttachments, loadOutboundAttachments, type InboundAttachmentDeps, type InboundMedia, type OutboundDeps } from "./attachments.js";
 import { httpStatus, isPermanentStatus } from "./http-status.js";
 import { threadRef, type Ledger, type LedgerItem, type PendingReply } from "./ledger.js";
-import { checkSender, type Authenticator } from "./sender-check.js";
+import { checkSender, isAutomatic, type Authenticator } from "./sender-check.js";
 import type { ReplyIdentity } from "./config.js";
 import type { InboundApi, InboundMessage, Logger } from "./types.js";
 
@@ -162,6 +162,10 @@ export class Processor {
       // Logged without the sender's address or the body: it is unauthenticated input.
       this.d.log.warn("mailtrap: message dropped", { id, reason: verdict.reason });
       return this.drop(id, verdict.reason);
+    }
+    if (isAutomatic(verdict.headers)) {
+      this.d.log.warn("mailtrap: message dropped", { id, reason: "auto-submitted" });
+      return this.drop(id, "auto-submitted");
     }
 
     const conversationKey =

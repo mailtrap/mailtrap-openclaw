@@ -1,8 +1,8 @@
 import { dkimVerify } from "mailauth";
-import { getAlignment } from "mailauth/lib/tools";
+import { getAlignment, parseHeaders } from "mailauth/lib/tools";
 import { httpStatus } from "./http-status.js";
 import { domainOf, parseAddress } from "./address.js";
-import type { Authenticator } from "./sender-check.js";
+import type { Authenticator, MessageHeaders } from "./sender-check.js";
 import type { InboundApi, InboundMessage } from "./types.js";
 
 export type DnsResolver = (name: string, rr: string) => Promise<unknown>;
@@ -50,6 +50,19 @@ function isTransientDownloadError(err: unknown): boolean {
   if (status !== undefined) return status >= 500 || status === 408 || status === 429;
   const msg = err instanceof Error ? err.message : "";
   return !/not https|too large|no raw message URL/.test(msg);
+}
+
+/** The top-level header block of a raw message (the bytes before the first blank line), unfolded. */
+function topHeaders(raw: Buffer): MessageHeaders {
+  const ends = [raw.indexOf("\r\n\r\n"), raw.indexOf("\n\n")].filter((i) => i >= 0);
+  const headers: MessageHeaders = {};
+  for (const row of parseHeaders(ends.length ? raw.subarray(0, Math.min(...ends)) : raw).parsed) {
+    if (!row.key) continue;
+    const line = row.line.toString("utf8");
+    const value = line.slice(line.indexOf(":") + 1).replace(/\r?\n(?=[ \t])/g, "").trim();
+    (headers[row.key] ??= []).push(value);
+  }
+  return headers;
 }
 
 function isExpired(msg: InboundMessage, now: number): boolean {
@@ -108,7 +121,7 @@ export function createDkimAuthenticator(deps: DkimDeps): Authenticator {
     const fromDomain = domainOf(sender.email);
     const passes = result.results.filter((r) => r.status?.result === "pass" && !(r.status as { underSized?: unknown }).underSized && typeof r.signingDomain === "string");
     // Relaxed alignment: the signing domain and the From domain share an organizational domain.
-    if (passes.some((r) => getAlignment(fromDomain, r.signingDomain as string, false))) return { ok: true };
+    if (passes.some((r) => getAlignment(fromDomain, r.signingDomain as string, false))) return { ok: true, headers: topHeaders(raw) };
     // DNS lookups that failed temporarily (SERVFAIL, timeout) come back as `temperror`: that check did not run,
     // and it may be the aligned one even when another signature passed or partly passed.
     if (result.results.some((r) => r.status?.result === "temperror")) return { ok: false, reason: "dkim-dns-temperror", transient: true };
@@ -120,5 +133,11 @@ export function createDkimAuthenticator(deps: DkimDeps): Authenticator {
   };
 }
 
-/** `allowUnauthenticated: true` (testing only) replaces layer 2 with a pass. */
-export const unauthenticated: Authenticator = async () => ({ ok: true });
+/**
+ * `allowUnauthenticated: true` (testing only) replaces layer 2 with a pass. No raw message is
+ * downloaded, so the headers are the few the API reports.
+ */
+export const unauthenticated: Authenticator = async (message) => ({
+  ok: true,
+  headers: Object.fromEntries(Object.entries(message.headers ?? {}).map(([k, v]) => [k.toLowerCase(), (Array.isArray(v) ? v : [v]).map(String)]))
+});

@@ -32,6 +32,8 @@ export interface InboundMessage {
   html_body?: string | null;
   raw_message_url?: string | null;
   raw_message_expires_at?: string | null;
+  /** A few top-level headers as the API reports them; the full set is only in the raw message. */
+  headers?: Record<string, string | string[]> | null;
 }
 
 export interface MessagesPage {

@@ -310,7 +310,7 @@ describe("DKIM l= partial body signature", () => {
     // the untouched message still passes
     const clean = Buffer.from(res.signatures + base);
     const ok = createDkimAuthenticator({ api, inboxId: 1001, fetchRaw: async () => clean, resolver, now: () => T0 });
-    expect(await ok(msg, { email: "alex@example.test", name: undefined })).toEqual({ ok: true });
+    expect(await ok(msg, { email: "alex@example.test", name: undefined })).toMatchObject({ ok: true });
   });
 });
 

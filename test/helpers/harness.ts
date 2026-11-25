@@ -41,7 +41,7 @@ export function makeHarness(opts: HarnessOptions = {}) {
     ledger,
     identity,
     allowFrom: opts.allowFrom ?? ["alex@example.test"],
-    authenticate: opts.authenticate ?? (async () => ({ ok: true })),
+    authenticate: opts.authenticate ?? (async () => ({ ok: true, headers: {} })),
     runAgentTurn,
     inbound: opts.inbound,
     outbound: opts.outbound,
