@@ -96,7 +96,8 @@ export function bodyText(m: InboundMessage): string {
 
 /**
  * The dispatch returned without running an agent turn for this item: the session was busy
- * (core restart recovery, another run) and the turn was queued or skipped. Not "no reply":
+ * (core restart recovery, another run) and the turn was queued or skipped, or core rejected the
+ * dispatch because the session changed while starting work. Not "no reply":
  * the item is retried later under a fresh dispatch id.
  */
 export class TurnNotRunError extends Error {

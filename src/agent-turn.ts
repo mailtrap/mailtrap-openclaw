@@ -39,6 +39,14 @@ export interface AgentTurnOptions {
   onError: (msg: string, err: unknown) => void;
 }
 
+/**
+ * Core rejected the dispatch before any work began because another run holds the session.
+ * The class is not exported by the plugin SDK, so match it by name.
+ */
+function isSessionRefreshRequired(err: unknown): boolean {
+  return err instanceof Error && err.name === "DispatchSessionRefreshRequiredError";
+}
+
 /** Resolves true when `event` happens within `ms`, false at the deadline; rejects with `TurnAbortedError` on abort. */
 function within(event: Promise<void>, ms: number, signal: AbortSignal | undefined): Promise<boolean> {
   return new Promise((resolve, reject) => {
@@ -164,38 +172,47 @@ export function createAgentTurnRunner(opts: AgentTurnOptions): RunAgentTurn {
     });
 
     const { onModelSelected, ...replyPipeline } = host.createReplyPipeline({ cfg, agentId, channel: CHANNEL, accountId: routeAccountId });
-    await host.dispatchTurn({
-      cfg,
-      channel: CHANNEL,
-      accountId: routeAccountId,
-      route: { agentId, sessionKey },
-      ctxPayload,
-      record: { onRecordError: (err: unknown) => opts.onError("session record failed", err) },
-      delivery: {
-        deliver: async (payload: unknown) => {
-          const p = host.normalizeReplyPayload(payload);
-          if (p.text?.trim()) texts.push(p.text.trim());
-          for (const url of [...(p.mediaUrls ?? []), ...(p.mediaUrl ? [p.mediaUrl] : [])]) {
-            if (media.some((m) => m.path === url)) continue;
-            media.push({ path: url, filename: url.split(/[\\/]/).pop() || "attachment" });
+    try {
+      await host.dispatchTurn({
+        cfg,
+        channel: CHANNEL,
+        accountId: routeAccountId,
+        route: { agentId, sessionKey },
+        ctxPayload,
+        record: { onRecordError: (err: unknown) => opts.onError("session record failed", err) },
+        delivery: {
+          deliver: async (payload: unknown) => {
+            const p = host.normalizeReplyPayload(payload);
+            if (p.text?.trim()) texts.push(p.text.trim());
+            for (const url of [...(p.mediaUrls ?? []), ...(p.mediaUrl ? [p.mediaUrl] : [])]) {
+              if (media.some((m) => m.path === url)) continue;
+              media.push({ path: url, filename: url.split(/[\\/]/).pop() || "attachment" });
+            }
+          },
+          onError: (err: unknown, info: { kind: string }) => {
+            dispatchError = err;
+            opts.onError(`dispatch failed (${info.kind})`, err);
           }
         },
-        onError: (err: unknown, info: { kind: string }) => {
-          dispatchError = err;
-          opts.onError(`dispatch failed (${info.kind})`, err);
+        replyPipeline,
+        replyOptions: {
+          onModelSelected,
+          onAgentRunStart: markStarted,
+          onPreparedAgentRunStart: markStarted,
+          onAgentRunTerminalOutcome: markFinished,
+          onQueuedFollowupAdmitted: markAdmitted,
+          onQueuedFollowupSettled: () => onSettled()
         }
-      },
-      replyPipeline,
-      replyOptions: {
-        onModelSelected,
-        onAgentRunStart: markStarted,
-        onPreparedAgentRunStart: markStarted,
-        onAgentRunTerminalOutcome: markFinished,
-        onQueuedFollowupAdmitted: markAdmitted,
-        onQueuedFollowupSettled: () => onSettled()
-      }
-    });
-    if (dispatchError) throw dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError));
+      });
+    } catch (err) {
+      // Core reports this rejection through onError, or throws it after its own retry. No turn ran either way,
+      // so retry it in the busy-session window.
+      throw isSessionRefreshRequired(err) ? new TurnNotRunError() : err;
+    }
+    if (dispatchError) {
+      if (isSessionRefreshRequired(dispatchError)) throw new TurnNotRunError();
+      throw dispatchError instanceof Error ? dispatchError : new Error(String(dispatchError));
+    }
     const collected = () => (texts.length === 0 && media.length === 0 ? null : { text: texts.join("\n\n"), media });
     if (!admitted) {
       if (runFinished || texts.length > 0 || media.length > 0) return collected();

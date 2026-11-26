@@ -135,6 +135,27 @@ describe("agent turn runner", () => {
     ).rejects.toThrow("model down");
   });
 
+  it("a dispatch core rejected because the session changed while starting work counts as not run", async () => {
+    const refresh = Object.assign(new Error('Session "s" changed while starting work. Retry.'), { name: "DispatchSessionRefreshRequiredError" });
+    await expect(
+      createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host: makeTurnHost(async (p) => (p as any).delivery.onError(refresh, { kind: "final" })) })(input)
+    ).rejects.toBeInstanceOf(TurnNotRunError);
+  });
+
+  it("the same rejection thrown out of the dispatch counts as not run", async () => {
+    const refresh = Object.assign(new Error('Session "s" changed while starting work. Retry.'), { name: "DispatchSessionRefreshRequiredError" });
+    await expect(
+      createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host: makeTurnHost(async () => { throw refresh; }) })(input)
+    ).rejects.toBeInstanceOf(TurnNotRunError);
+  });
+
+  it("any other error thrown out of the dispatch is rethrown unchanged", async () => {
+    const boom = new Error("gateway down");
+    await expect(
+      createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host: makeTurnHost(async () => { throw boom; }) })(input)
+    ).rejects.toBe(boom);
+  });
+
   it("busy session: a dispatch that returns with no run and no payloads is not a no-reply (core result shape of dispatch-from-config:2896-2909)", async () => {
     fakeTimers();
     try {
