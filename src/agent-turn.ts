@@ -205,8 +205,12 @@ export function createAgentTurnRunner(opts: AgentTurnOptions): RunAgentTurn {
       // into the active run with no hook for us, so this wait ends in the usual retry.
       if (!(await within(admission, TURN_ADMISSION_WAIT_MS, input.signal))) throw new TurnNotRunError();
     }
-    // Admitted: the turn is running; never dispatch it again.
-    if (!(await within(settlement, TURN_OUTCOME_WAIT_MS, input.signal))) throw new TurnOutcomeUnknownError("turn-outcome-timeout");
+    // Admitted: the turn is running; never dispatch it again. A stop now (e.g. a config reload, where the
+    // follow-up keeps running into this collector) fails the item instead of leaving it for the next start.
+    const settled = await within(settlement, TURN_OUTCOME_WAIT_MS, input.signal).catch((err: unknown) => {
+      throw err instanceof TurnAbortedError ? new TurnOutcomeUnknownError("turn-interrupted") : err;
+    });
+    if (!settled) throw new TurnOutcomeUnknownError("turn-outcome-timeout");
     const reply = collected();
     if (!reply && outcomeAfterAdmission !== "completed") throw new TurnOutcomeUnknownError("turn-outcome-unknown");
     return reply;

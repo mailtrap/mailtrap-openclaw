@@ -217,4 +217,52 @@ describe("exactly one reply after a crash mid-turn", () => {
     expect(h.api.replies[0]!.params.text).toBe("queued answer, delivered late");
     expect(await h.ledger.get(m.id)).toMatchObject({ state: "done" });
   });
+  for (const admitted of [true, false]) {
+    it(`account restart ${admitted ? "after" : "before"} the queued turn was admitted: ${admitted ? "failed as turn-interrupted, no second dispatch" : "dispatched once more, one reply"}`, async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const dispatches: string[] = [];
+      let first: any;
+      // the first dispatch finds the session busy; after the restart the session is free and the turn runs inline
+      const host = makeTurnHost(async (p) => {
+        const plan = p as any;
+        dispatches.push(plan.ctxPayload.MessageSid);
+        if (dispatches.length === 1) {
+          first = plan;
+          return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
+        }
+        await plan.delivery.deliver({ text: "inline answer" });
+        plan.replyOptions.onAgentRunTerminalOutcome("completed");
+        return { queuedFinal: true, counts: { tool: 0, block: 0, final: 1 } };
+      });
+      const runAgentTurn = createAgentTurnRunner({ cfg: {}, accountId: "default", host, onError: () => {} });
+      const h = makeHarness({ runAgentTurn });
+      await pollOnce(h.api, 1001, h.ledger);
+      const m = h.api.add(makeMessage());
+      await pollOnce(h.api, 1001, h.ledger);
+      const drained = h.runtime.drain();
+      for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+      expect(dispatches).toHaveLength(1);
+      if (admitted) await first.replyOptions.onQueuedFollowupAdmitted();
+      // a config reload restarts the account: the old runtime stops, a new one starts on the same store
+      await h.runtime.stop();
+      await drained;
+      const h2 = makeHarness({ api: h.api, openStore: h.openStore, runAgentTurn });
+      await h2.runtime.drain();
+      if (admitted) {
+        expect(dispatches).toEqual([m.id]);
+        expect(await h2.ledger.get(m.id)).toMatchObject({ state: "failed", reason: "turn-interrupted", dispatchAttempts: 1 });
+        // the admitted follow-up still delivers into the old collector: nothing is sent from it
+        await first.delivery.deliver({ text: "late answer" });
+        await first.replyOptions.onQueuedFollowupSettled();
+        await h2.runtime.drain();
+        expect(dispatches).toHaveLength(1);
+        expect(h.api.replies).toHaveLength(0);
+      } else {
+        expect(dispatches).toEqual([m.id, dispatchIdFor(m.id, 1)]);
+        expect(h.api.replies.map((r) => r.params.text)).toEqual(["inline answer"]);
+        expect(await h2.ledger.get(m.id)).toMatchObject({ state: "done", dispatchAttempts: 2 });
+      }
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  }
 });

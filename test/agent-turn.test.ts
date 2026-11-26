@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentTurnRunner, emailSessionKey, type TurnHost } from "../src/agent-turn.js";
 import { pollOnce } from "../src/poller.js";
-import { TURN_ADMISSION_WAIT_MS, TURN_OUTCOME_WAIT_MS, TurnAbortedError, TurnNotRunError } from "../src/processor.js";
+import { TURN_ADMISSION_WAIT_MS, TURN_OUTCOME_WAIT_MS, TurnAbortedError, TurnNotRunError, TurnOutcomeUnknownError } from "../src/processor.js";
 import { guardToolCall, isEmailSessionKey } from "../src/tool-policy.js";
 import { makeHarness } from "./helpers/harness.js";
 import { makeMessage } from "./helpers/memory.js";
@@ -193,13 +193,15 @@ describe("agent turn runner", () => {
     }
   });
 
-  it("a signal already aborted when a wait starts ends the turn at once, for the admission wait and the settle wait", async () => {
+  it("a signal already aborted when a wait starts ends the turn at once: aborted before an admission, interrupted after one", async () => {
     fakeTimers();
     try {
       const signal = AbortSignal.abort();
       for (const admitDuringDispatch of [false, true]) {
         const host = makeTurnHost(async (p) => (admitDuringDispatch && (p as any).replyOptions.onQueuedFollowupAdmitted(), busy));
-        await expect(createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host })({ ...input, signal })).rejects.toBeInstanceOf(TurnAbortedError);
+        const err = await createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host })({ ...input, signal }).catch((e: unknown) => e);
+        if (admitDuringDispatch) expect(err).toMatchObject({ name: "TurnOutcomeUnknownError", reason: "turn-interrupted" });
+        else expect(err).toBeInstanceOf(TurnAbortedError);
         expect(vi.getTimerCount()).toBe(0);
       }
     } finally {
@@ -322,23 +324,60 @@ describe("a turn queued behind an active run", () => {
     expect(h.api.replies).toHaveLength(0);
   });
 
-  for (const phase of ["admission", "settle"] as const) {
-    it(`stop during the ${phase} wait returns promptly and leaves the item processing, counters unchanged`, async () => {
-      const { h, m, drained, ro } = await setup();
-      if (phase === "settle") await ro.onQueuedFollowupAdmitted();
-      const before = await h.ledger.get(m.id);
-      let stopped = false;
-      const stop = h.runtime.stop().then(() => (stopped = true));
+  for (const admittedDuringDispatch of [false, true]) {
+    it(`abort during the settle wait, admitted ${admittedDuringDispatch ? "during the dispatch" : "after it returned"}: interrupted, never dispatched again`, async () => {
+      fakeTimers();
+      const abort = new AbortController();
+      let dispatches = 0;
+      let ro: any;
+      const host = makeTurnHost(async (p) => {
+        dispatches++;
+        ro = (p as any).replyOptions;
+        if (admittedDuringDispatch) ro.onQueuedFollowupAdmitted();
+        return busy;
+      });
+      const outcome = createAgentTurnRunner({ cfg: {}, accountId: "d", onError: () => {}, host })({ ...input, signal: abort.signal }).catch((e: unknown) => e);
       await flush();
-      expect(stopped).toBe(true);
-      await stop;
-      await drained;
-      const after = await h.ledger.get(m.id);
-      expect(after).toEqual(before);
-      expect(after).toMatchObject({ state: "processing", dispatchAttempts: 1 });
-      expect(after?.notRunAttempts).toBeUndefined();
-      expect(after?.turnAttempts).toBeUndefined();
-      expect(h.api.replies).toHaveLength(0);
+      if (!admittedDuringDispatch) await ro.onQueuedFollowupAdmitted();
+      await vi.advanceTimersByTimeAsync(60_000);
+      abort.abort();
+      const err = await outcome;
+      expect(err).toBeInstanceOf(TurnOutcomeUnknownError);
+      expect(err).toMatchObject({ reason: "turn-interrupted" });
+      expect(dispatches).toBe(1);
     });
   }
+
+  it("stop during the admission wait returns promptly and leaves the item processing, counters unchanged", async () => {
+    const { h, m, drained } = await setup();
+    const before = await h.ledger.get(m.id);
+    let stopped = false;
+    const stop = h.runtime.stop().then(() => (stopped = true));
+    await flush();
+    expect(stopped).toBe(true);
+    await stop;
+    await drained;
+    const after = await h.ledger.get(m.id);
+    expect(after).toEqual(before);
+    expect(after).toMatchObject({ state: "processing", dispatchAttempts: 1 });
+    expect(after?.notRunAttempts).toBeUndefined();
+    expect(after?.turnAttempts).toBeUndefined();
+    expect(h.api.replies).toHaveLength(0);
+  });
+
+  it("stop during the settle wait returns promptly and fails the item as turn-interrupted, counters unchanged", async () => {
+    const { h, m, drained, ro } = await setup();
+    await ro.onQueuedFollowupAdmitted();
+    let stopped = false;
+    const stop = h.runtime.stop().then(() => (stopped = true));
+    await flush();
+    expect(stopped).toBe(true);
+    await stop;
+    await drained;
+    const after = await h.ledger.get(m.id);
+    expect(after).toMatchObject({ state: "failed", reason: "turn-interrupted", dispatchAttempts: 1 });
+    expect(after?.notRunAttempts).toBeUndefined();
+    expect(after?.turnAttempts).toBeUndefined();
+    expect(h.api.replies).toHaveLength(0);
+  });
 });

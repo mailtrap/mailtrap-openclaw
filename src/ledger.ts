@@ -7,7 +7,7 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
  * Item lifecycle:
  *   queued -> processing -> sending -> done
  *                 \-> dropped (sender check failed, own mail, nothing to say)
- *   processing -> failed (session busy too long, agent turn failed, turn outcome timeout or unknown, reply too large)
+ *   processing -> failed (session busy too long, agent turn failed, turn outcome timeout, unknown or interrupted, reply too large)
  *   sending -> failed (reply refused permanently, or retries exhausted)
  * `sending` is written before `reply` is called; it is what crash recovery looks for.
  */

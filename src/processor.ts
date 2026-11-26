@@ -108,17 +108,25 @@ export class TurnNotRunError extends Error {
 
 /**
  * A queued follow-up for this item was admitted, but how it ended is unknown: it did not settle within
- * `TURN_OUTCOME_WAIT_MS` (`turn-outcome-timeout`), or it settled with nothing delivered and no completed
- * run (`turn-outcome-unknown`; core may be running it again). It is not dispatched again; the item fails.
+ * `TURN_OUTCOME_WAIT_MS` (`turn-outcome-timeout`), it settled with nothing delivered and no completed
+ * run (`turn-outcome-unknown`; core may be running it again), or the account stopped while waiting for
+ * it to settle (`turn-interrupted`; the follow-up may still run, into a collector nobody reads).
+ * It is not dispatched again; the item fails.
  */
 export class TurnOutcomeUnknownError extends Error {
-  constructor(readonly reason: "turn-outcome-timeout" | "turn-outcome-unknown") {
-    super(reason === "turn-outcome-timeout" ? "queued agent turn did not finish in time" : "queued agent turn settled without completing");
+  constructor(readonly reason: "turn-outcome-timeout" | "turn-outcome-unknown" | "turn-interrupted") {
+    super(
+      reason === "turn-outcome-timeout"
+        ? "queued agent turn did not finish in time"
+        : reason === "turn-outcome-unknown"
+          ? "queued agent turn settled without completing"
+          : "account stopped after the queued agent turn was admitted"
+    );
     this.name = "TurnOutcomeUnknownError";
   }
 }
 
-/** The account stopped while the turn waited for a queued follow-up; the item is left as it is. */
+/** The account stopped while the turn waited for a queued follow-up to be admitted; the item is left as it is. */
 export class TurnAbortedError extends Error {
   constructor() {
     super("account stopped while waiting for the agent turn");
@@ -230,7 +238,7 @@ export class Processor {
         signal
       });
     } catch (err) {
-      // Stopped mid-wait: left `processing` as after a crash; the next start dispatches it again.
+      // Stopped before admission: left `processing` as after a crash; the next start dispatches it again.
       if (err instanceof TurnAbortedError) return;
       if (err instanceof TurnOutcomeUnknownError) {
         this.d.log.warn("mailtrap: queued agent turn ended without a known outcome; not running it again", { id, reason: err.reason });
