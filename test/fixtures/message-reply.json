@@ -1,0 +1,32 @@
+{
+  "id": "1395376724238849696",
+  "inbox_id": 1001,
+  "from": "Alex Example <alex@example.test>",
+  "to": [
+    "agent-test@inbound-mailtrap.io"
+  ],
+  "cc": [],
+  "bcc": [],
+  "reply_to": null,
+  "subject": "Re: OpenClaw Inbound live check",
+  "headers": {
+    "mime-version": "1.0",
+    "return-path": ""
+  },
+  "size": 5901,
+  "html_size": 483,
+  "text_size": 210,
+  "received_at": "2026-11-09T14:13:08.154Z",
+  "rfc_message_id": "<synthetic-1140257207@mail.example.test>",
+  "in_reply_to": "<b88139b9-ae27-4da7-82f0-6b90f143262f@inbound-mailtrap.io>",
+  "references": [
+    "<b88139b9-ae27-4da7-82f0-6b90f143262f@inbound-mailtrap.io>"
+  ],
+  "thread_id": "1532871012269166978",
+  "attachments": [],
+  "forwards": [],
+  "raw_message_url": "https://raw.example.test/redacted",
+  "raw_message_expires_at": "2026-11-09T15:13:39.269Z",
+  "html_body": "<html><body><div dir=\"auto\">Reply to the agent&#39;s reply, for the Phase 2 threading check.</div></body></html><br><div class=\"mailer_extra\"><div>On Mon, Nov 09, 2026 03:46 PM, <a href=\"mailto:agent-test@inbound-mailtrap.io\">agent-test@inbound-mailtrap.io</a> wrote:<br><blockquote class=\"mailer_quote\" style=\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\">Reply sent by the OpenClaw Mailtrap plugin live check.<br>\r\n</blockquote></div></div>\r\n",
+  "text_body": "Reply to the agent's reply, for the Phase 2 threading check.\r\n\r\nOn Mon, Nov 09, 2026 03:46 PM, agent-test@inbound-mailtrap.io\r\nwrote:\r\n\r\n> Reply sent by the OpenClaw Mailtrap plugin live check.\r\n>\r\n"
+}

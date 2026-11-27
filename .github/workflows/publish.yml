@@ -1,0 +1,68 @@
+name: Publish
+
+# Merging to main publishes to ClawHub when, and only when, the version in
+# package.json is not on ClawHub yet. Bump it in the PR to release.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: clawhub-publish
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'mailtrap/mailtrap-openclaw'
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: |
+          v=$(node -p "require('./package.json').version")
+          m=$(node -p "require('./openclaw.plugin.json').version ?? ''")
+          if [ -n "$m" ] && [ "$m" != "$v" ]; then
+            echo "::error::package.json is $v but openclaw.plugin.json is $m"
+            exit 1
+          fi
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://clawhub.ai/api/v1/packages/%40mailtrap%2Fopenclaw/versions/$v")
+          case "$code" in
+            200) echo "$v is already on ClawHub, nothing to publish"; echo "publish=false" >> "$GITHUB_OUTPUT" ;;
+            404) echo "$v is not on ClawHub, publishing"; echo "publish=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::ClawHub answered $code for $v"; exit 1 ;;
+          esac
+
+  publish:
+    needs: check
+    if: github.repository == 'mailtrap/mailtrap-openclaw' && needs.check.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: clawhub
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run gate
+      # pack:verify in the gate leaves the tarball in the repo root.
+      - id: tarball
+        run: |
+          t=$(node -p "const p=require('./package.json');p.name.replace(/^@/,'').replace('/','-')+'-'+p.version+'.tgz'")
+          test -f "$t" || { echo "::error::$t not found after the gate"; exit 1; }
+          echo "file=$t" >> "$GITHUB_OUTPUT"
+      - run: npx --no-install clawhub login --token "$CLAWHUB_TOKEN" --no-input
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+      - run: |
+          npx --no-install clawhub package publish "./$TARBALL" --family code-plugin \
+            --owner mailtrap --source-repo "$GITHUB_REPOSITORY" \
+            --source-commit "$GITHUB_SHA" --source-ref main --wait
+        env:
+          TARBALL: ${{ steps.tarball.outputs.file }}

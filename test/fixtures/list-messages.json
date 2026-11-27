@@ -1,0 +1,86 @@
+{
+  "data": [
+    {
+      "id": "1395376724238849696",
+      "inbox_id": 1001,
+      "from": "Alex Example <alex@example.test>",
+      "to": [
+        "agent-test@inbound-mailtrap.io"
+      ],
+      "cc": [],
+      "bcc": [],
+      "reply_to": null,
+      "subject": "Re: OpenClaw Inbound live check",
+      "headers": {
+        "mime-version": "1.0",
+        "return-path": ""
+      },
+      "size": 5901,
+      "html_size": 483,
+      "text_size": 210,
+      "received_at": "2026-11-09T14:13:08.154Z",
+      "rfc_message_id": "<synthetic-1140257207@mail.example.test>",
+      "in_reply_to": "<b88139b9-ae27-4da7-82f0-6b90f143262f@inbound-mailtrap.io>",
+      "references": [
+        "<b88139b9-ae27-4da7-82f0-6b90f143262f@inbound-mailtrap.io>"
+      ],
+      "thread_id": "1532871012269166978",
+      "attachments": [],
+      "forwards": []
+    },
+    {
+      "id": "1310341316475255341",
+      "inbox_id": 1001,
+      "from": "Alex Example <alex@example.test>",
+      "to": [
+        "agent-test@inbound-mailtrap.io"
+      ],
+      "cc": [],
+      "bcc": [],
+      "reply_to": null,
+      "subject": "Re: OpenClaw Inbound live check",
+      "headers": {
+        "mime-version": "1.0",
+        "return-path": ""
+      },
+      "size": 4976,
+      "html_size": 117,
+      "text_size": 69,
+      "received_at": "2026-11-09T14:12:03.661Z",
+      "rfc_message_id": "<synthetic-2762896744@mail.example.test>",
+      "in_reply_to": null,
+      "references": [],
+      "thread_id": "1928327648350305641",
+      "attachments": [],
+      "forwards": []
+    },
+    {
+      "id": "1104332181960013389",
+      "inbox_id": 1001,
+      "from": "Alex Example <alex@example.test>",
+      "to": [
+        "agent-test@inbound-mailtrap.io"
+      ],
+      "cc": [],
+      "bcc": [],
+      "reply_to": null,
+      "subject": "OpenClaw Inbound live check",
+      "headers": {
+        "mime-version": "1.0",
+        "return-path": ""
+      },
+      "size": 5070,
+      "html_size": 166,
+      "text_size": 119,
+      "received_at": "2026-11-09T13:37:14.414Z",
+      "rfc_message_id": "<synthetic-48962041@mail.example.test>",
+      "in_reply_to": null,
+      "references": [],
+      "thread_id": "1083863794026542351",
+      "attachments": [],
+      "forwards": []
+    }
+  ],
+  "total_count": 3,
+  "last_id": null
+}
